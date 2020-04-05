@@ -43,14 +43,14 @@ end
 
 mutable struct Foo
     a::Bar{Int}
-    b
+    b::Any
 end
 
 function foo_bar_identity(x)
     bar = Bar(x, x + 1, x + 2)
     foo = Foo(bar, "ha")
     foo.b = bar
-    foo.a = Bar(4,5,6)
+    foo.a = Bar(4, 5, 6)
     foo2 = Foo(foo.a, foo.b)
     foo2.a = foo2.b
     array = Float64[]
@@ -59,7 +59,7 @@ function foo_bar_identity(x)
 end
 
 @context FooBarCtx
-Cassette.metadatatype(::Type{<:FooBarCtx}, ::Type{T}) where T<:Number = T
+Cassette.metadatatype(::Type{<:FooBarCtx}, ::Type{T}) where {T<:Number} = T
 x, n = 1, 2
 ctx = enabletagging(FooBarCtx(), foo_bar_identity)
 result = overdub(ctx, foo_bar_identity, tag(x, ctx, n))
@@ -90,11 +90,13 @@ result = overdub(ctx, x -> (x, [x], 1), x)
 @test istagged(result, ctx)
 @test istaggedtype(typeof(result), typeof(ctx))
 @test metadata(result, ctx) === Cassette.NoMetaData()
-@test isa(metameta(result, ctx), Tuple{
-    Cassette.Immutable{Cassette.Meta{Float64,Cassette.NoMetaMeta}},
-    Cassette.Immutable{Cassette.Meta{Float64,Array{Cassette.Meta{Float64,Cassette.NoMetaMeta},1}}},
-    Cassette.Immutable{Cassette.Meta{Float64,Cassette.NoMetaMeta}}
-})
+@test isa(metameta(result, ctx),
+          Tuple{Cassette.Immutable{Cassette.Meta{Float64,Cassette.NoMetaMeta}},
+                Cassette.Immutable{Cassette.Meta{Float64,
+                                                 Array{Cassette.Meta{Float64,
+                                                                     Cassette.NoMetaMeta},
+                                                       1}}},
+                Cassette.Immutable{Cassette.Meta{Float64,Cassette.NoMetaMeta}}})
 @test !hasmetadata(result, ctx)
 @test hasmetameta(result, ctx)
 
@@ -168,7 +170,7 @@ result = @overdub(ctx, ((v, m) -> tag(v, ctx, m)).(v, m[1]))
 @test metadata(result, ctx) === Cassette.NoMetaData()
 foreach(metameta(result, ctx)) do x
     @test x.meta === Cassette.NoMetaMeta()
-    @test x.data === m[1]
+    return @test x.data === m[1]
 end
 @test !hasmetadata(result, ctx)
 @test hasmetameta(result, ctx)
@@ -184,7 +186,10 @@ before_time = time()
 @context BroadcastCtx2
 
 Cassette.metadatatype(::Type{<:BroadcastCtx2{Int}}, ::Type{T}) where {T<:Number} = Vector{T}
-Cassette.metadatatype(::Type{<:BroadcastCtx2{Val{N}}}, ::Type{T}) where {N,T<:Number} = NTuple{N,T}
+function Cassette.metadatatype(::Type{<:BroadcastCtx2{Val{N}}},
+                               ::Type{T}) where {N,T<:Number}
+    return NTuple{N,T}
+end
 
 v, m = rand(5), rand(5)
 ctx = enabletagging(BroadcastCtx2(metadata=10), 1)
@@ -195,13 +200,13 @@ result = overdub(ctx, broadcast, (v, m) -> tag(v, ctx, m), v, [m])
 @test istaggedtype(typeof(result), typeof(ctx))
 @test metadata(result, ctx) === Cassette.NoMetaData()
 @test all(e -> e == m, map(metameta(result, ctx)) do x
-    @test x.meta === Cassette.NoMetaMeta()
-    return x.data
-end)
+              @test x.meta === Cassette.NoMetaMeta()
+              return x.data
+          end)
 @test !hasmetadata(result, ctx)
 @test hasmetameta(result, ctx)
 
-v, m = rand(5), (1.0,2.0,3.0)
+v, m = rand(5), (1.0, 2.0, 3.0)
 ctx = enabletagging(BroadcastCtx2(metadata=Val(3)), 1)
 result = overdub(ctx, broadcast, (v, m) -> tag(v, ctx, m), v, [m])
 @test untag(result, ctx) == v
@@ -211,7 +216,7 @@ result = overdub(ctx, broadcast, (v, m) -> tag(v, ctx, m), v, [m])
 @test metadata(result, ctx) === Cassette.NoMetaData()
 foreach(metameta(result, ctx)) do x
     @test x.meta === Cassette.NoMetaMeta()
-    @test x.data === m
+    return @test x.data === m
 end
 @test !hasmetadata(result, ctx)
 @test hasmetameta(result, ctx)
@@ -225,9 +230,10 @@ print("   running MetaTypeCtx test...")
 before_time = time()
 
 @context MetaTypeCtx
-@test Cassette.metatype(typeof(MetaTypeCtx()), DataType) === Cassette.Meta{Cassette.NoMetaData,Cassette.NoMetaMeta}
+@test Cassette.metatype(typeof(MetaTypeCtx()), DataType) ===
+      Cassette.Meta{Cassette.NoMetaData,Cassette.NoMetaMeta}
 ctx = enabletagging(MetaTypeCtx(), 1)
-@test overdub(ctx, T -> (T,T), Float64) === (Float64, Float64)
+@test overdub(ctx, T -> (T, T), Float64) === (Float64, Float64)
 
 println("done (took ", time() - before_time, " seconds)")
 
@@ -245,7 +251,8 @@ function condtest(b)
     while i > b
         i -= 1
     end
-    if b end
+    if b
+    end
     return i
 end
 @test overdub(ctx, condtest, tag(false, ctx)) === 0
@@ -260,8 +267,8 @@ before_time = time()
 
 @context KwargCtx
 ctx = enabletagging(KwargCtx(), 1)
-kwargtest(x; y = 1) = x + y
-@test overdub(ctx, _y -> kwargtest(3; y = _y), tag(2, ctx)) === 5
+kwargtest(x; y=1) = x + y
+@test overdub(ctx, _y -> kwargtest(3; y=_y), tag(2, ctx)) === 5
 
 println("done (took ", time() - before_time, " seconds)")
 
@@ -297,71 +304,71 @@ before_time = time()
 @context CrazyPropCtx
 
 module CrazyPropModule
-    const CONST_BINDING = Float64[]
+const CONST_BINDING = Float64[]
 
-    global GLOBAL_BINDING = 0.0
+global GLOBAL_BINDING = 0.0
 
-    struct Foo
-        vector::Vector{Float64}
-    end
+struct Foo
+    vector::Vector{Float64}
+end
 
-    mutable struct FooContainer
-        foo::Foo
-    end
+mutable struct FooContainer
+    foo::Foo
+end
 
-    mutable struct PlusFunc
-        x::Float64
-    end
+mutable struct PlusFunc
+    x::Float64
+end
 
-    (f::PlusFunc)(x) = f.x + x
+(f::PlusFunc)(x) = f.x + x
 
-    const PLUSFUNC = PlusFunc(0.0)
+const PLUSFUNC = PlusFunc(0.0)
 
-    # implements a very convoluted `sum(x) * sum(y)`
-    function crazy_sum_mul(x::Vector{Float64}, y::Vector{Float64})
-        @assert length(x) === length(y)
-        fooc = FooContainer(Foo(x))
-        tmp = y
+# implements a very convoluted `sum(x) * sum(y)`
+function crazy_sum_mul(x::Vector{Float64}, y::Vector{Float64})
+    @assert length(x) === length(y)
+    fooc = FooContainer(Foo(x))
+    tmp = y
 
-        # this loop sets:
-        # `const_binding == x`
-        # `global_binding == prod(y)`
-        for i in 1:length(y)
-            if iseven(i) # `fooc.foo.vector === y && tmp === x`
-                v = fooc.foo.vector[i]
-                push!(CONST_BINDING, tmp[i])
-                global GLOBAL_BINDING = PLUSFUNC(v)
-                PLUSFUNC.x = GLOBAL_BINDING
-                fooc.foo = Foo(x)
-                tmp = y
-            else # `fooc.foo.vector === x && tmp === y`
-                v = fooc.foo.vector[i]
-                push!(CONST_BINDING, v)
-                global GLOBAL_BINDING = PLUSFUNC(tmp[i])
-                PLUSFUNC.x = GLOBAL_BINDING
-                fooc.foo = Foo(y)
-                tmp = x
-            end
+    # this loop sets:
+    # `const_binding == x`
+    # `global_binding == prod(y)`
+    for i in 1:length(y)
+        if iseven(i) # `fooc.foo.vector === y && tmp === x`
+            v = fooc.foo.vector[i]
+            push!(CONST_BINDING, tmp[i])
+            global GLOBAL_BINDING = PLUSFUNC(v)
+            PLUSFUNC.x = GLOBAL_BINDING
+            fooc.foo = Foo(x)
+            tmp = y
+        else # `fooc.foo.vector === x && tmp === y`
+            v = fooc.foo.vector[i]
+            push!(CONST_BINDING, v)
+            global GLOBAL_BINDING = PLUSFUNC(tmp[i])
+            PLUSFUNC.x = GLOBAL_BINDING
+            fooc.foo = Foo(y)
+            tmp = x
         end
-
-        # accumulate result
-        z = sum(CONST_BINDING) * GLOBAL_BINDING
-
-        # reset global state
-        empty!(CONST_BINDING)
-        PLUSFUNC.x = 0.0
-        global GLOBAL_BINDING = 0.0
-        return z
     end
+
+    # accumulate result
+    z = sum(CONST_BINDING) * GLOBAL_BINDING
+
+    # reset global state
+    empty!(CONST_BINDING)
+    PLUSFUNC.x = 0.0
+    global GLOBAL_BINDING = 0.0
+    return z
+end
 end
 
 x, y = rand(100), rand(100)
 primal_result = CrazyPropModule.crazy_sum_mul(x, y)
 @test isapprox(primal_result, sum(x) * sum(y))
-Cassette.metadatatype(::Type{<:CrazyPropCtx}, ::Type{T}) where T<:Number = T
+Cassette.metadatatype(::Type{<:CrazyPropCtx}, ::Type{T}) where {T<:Number} = T
 function Cassette.overdub(ctx::CrazyPropCtx, ::typeof(*), x, y)
     z = untag(x, ctx) * untag(y, ctx)
-    if hasmetadata(x, ctx) && hasmetadata(y, ctx)
+    return if hasmetadata(x, ctx) && hasmetadata(y, ctx)
         return tag(z, ctx, metadata(x, ctx) * metadata(y, ctx))
     elseif hasmetadata(x, ctx)
         return tag(z, ctx, metadata(x, ctx))
@@ -373,7 +380,7 @@ function Cassette.overdub(ctx::CrazyPropCtx, ::typeof(*), x, y)
 end
 function Cassette.overdub(ctx::CrazyPropCtx, ::typeof(+), x, y)
     z = untag(x, ctx) + untag(y, ctx)
-    if hasmetadata(x, ctx) && hasmetadata(y, ctx)
+    return if hasmetadata(x, ctx) && hasmetadata(y, ctx)
         return tag(z, ctx, metadata(x, ctx) + metadata(y, ctx))
     elseif hasmetadata(x, ctx)
         return tag(z, ctx, metadata(x, ctx))
@@ -405,7 +412,9 @@ const DiffCtxWithTag{T} = DiffCtx{Nothing,T}
 
 Cassette.metadatatype(::Type{<:DiffCtx}, ::Type{T}) where {T<:Real} = T
 
-tangent(x, context) = hasmetadata(x, context) ? metadata(x, context) : zero(untag(x, context))
+function tangent(x, context)
+    return hasmetadata(x, context) ? metadata(x, context) : zero(untag(x, context))
+end
 
 function D(f, x)
     ctx = enabletagging(DiffCtx(), f)
@@ -413,44 +422,52 @@ function D(f, x)
     return tangent(result, ctx)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(sin), x::Tagged{T,<:Real}) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(sin),
+                          x::Tagged{T,<:Real}) where {T}
     vx, dx = untag(x, ctx), tangent(x, ctx)
     return tag(sin(vx), ctx, cos(vx) * dx)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(cos), x::Tagged{T,<:Real}) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(cos),
+                          x::Tagged{T,<:Real}) where {T}
     vx, dx = untag(x, ctx), tangent(x, ctx)
     return tag(cos(vx), ctx, -sin(vx) * dx)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(*), x::Tagged{T,<:Real}, y::Tagged{T,<:Real}) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(*), x::Tagged{T,<:Real},
+                          y::Tagged{T,<:Real}) where {T}
     vx, dx = untag(x, ctx), tangent(x, ctx)
     vy, dy = untag(y, ctx), tangent(y, ctx)
     return tag(vx * vy, ctx, vy * dx + vx * dy)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(*), x::Tagged{T,<:Real}, y::Real) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(*), x::Tagged{T,<:Real},
+                          y::Real) where {T}
     vx, dx = untag(x, ctx), tangent(x, ctx)
     return tag(vx * y, ctx, y * dx)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(*), x::Real, y::Tagged{T,<:Real}) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(*), x::Real,
+                          y::Tagged{T,<:Real}) where {T}
     vy, dy = untag(y, ctx), tangent(y, ctx)
     return tag(x * vy, ctx, x * dy)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(+), x::Tagged{T,<:Real}, y::Tagged{T,<:Real}) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(+), x::Tagged{T,<:Real},
+                          y::Tagged{T,<:Real}) where {T}
     vx, dx = untag(x, ctx), tangent(x, ctx)
     vy, dy = untag(y, ctx), tangent(y, ctx)
     return tag(vx + vy, ctx, dx + dy)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(+), x::Tagged{T,<:Real}, y::Real) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(+), x::Tagged{T,<:Real},
+                          y::Real) where {T}
     vx, dx = untag(x, ctx), tangent(x, ctx)
     return tag(vx + y, ctx, dx)
 end
 
-function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(+), x::Real, y::Tagged{T,<:Real}) where {T}
+function Cassette.overdub(ctx::DiffCtxWithTag{T}, ::typeof(+), x::Real,
+                          y::Tagged{T,<:Real}) where {T}
     vy, dy = untag(y, ctx), tangent(y, ctx)
     return tag(x + vy, ctx, dy)
 end
@@ -459,15 +476,19 @@ Cassette.overdub(ctx::DiffCtx, ::typeof(sin), x::Real) = sin(x)
 Cassette.overdub(ctx::DiffCtx, ::typeof(cos), x::Real) = cos(x)
 Cassette.overdub(ctx::DiffCtx, ::typeof(*), x::Real, y::Real) = x * y
 Cassette.overdub(ctx::DiffCtx, ::typeof(+), x::Real, y::Real) = x + y
-Cassette.overdub(ctx::DiffCtx, ::typeof(*), x, y, z) = Cassette.overdub(ctx, *, Cassette.overdub(ctx, *, x, y), z)
-Cassette.overdub(ctx::DiffCtx, ::typeof(+), x, y, z) = Cassette.overdub(ctx, +, Cassette.overdub(ctx, +, x, y), z)
+function Cassette.overdub(ctx::DiffCtx, ::typeof(*), x, y, z)
+    return Cassette.overdub(ctx, *, Cassette.overdub(ctx, *, x, y), z)
+end
+function Cassette.overdub(ctx::DiffCtx, ::typeof(+), x, y, z)
+    return Cassette.overdub(ctx, +, Cassette.overdub(ctx, +, x, y), z)
+end
 
 @test D(sin, 1) === cos(1)
 @test D(x -> D(sin, x), 1) === -sin(1)
 @test D(x -> sin(x) * cos(x), 1) === cos(1)^2 - sin(1)^2
 @test D(x -> x * D(y -> x * y, 1), 2) === 4
 @test D(x -> x * D(y -> x * y, 2), 1) === 2
-@test D(x -> x  * D(y -> 5*x*y, 3), 2) === 20
+@test D(x -> x * D(y -> 5 * x * y, 3), 2) === 20
 @test D(x -> x * foo_bar_identity(x), 1) === 2.0
 
 x = rand()

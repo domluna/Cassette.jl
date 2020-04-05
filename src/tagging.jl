@@ -8,8 +8,8 @@ abstract type FieldStorage{D} end
 
 mutable struct Mutable{D} <: FieldStorage{D}
     data::D
-    Mutable{D}() where D = new{D}()
-    Mutable{D}(data) where D = new{D}(data)
+    Mutable{D}() where {D} = new{D}()
+    Mutable{D}(data) where {D} = new{D}(data)
 end
 
 load(x::Mutable) = x.data
@@ -19,7 +19,7 @@ store!(x::Mutable, y) = (x.data = y)
 
 struct Immutable{D} <: FieldStorage{D}
     data::D
-    Immutable{D}(data) where D = new{D}(data)
+    Immutable{D}(data) where {D} = new{D}(data)
 end
 
 load(x::Immutable) = x.data
@@ -38,11 +38,13 @@ _metadataconvert(T, x) = convert(T, x)
 _metametaconvert(T, x::NoMetaMeta) = x
 _metametaconvert(T, x) = convert(T, x)
 
-struct Meta{D,M#=<:Union{Tuple,NamedTuple,Array,ModuleMeta}=#}
+struct Meta{D,M}#=<:Union{Tuple,NamedTuple,Array,ModuleMeta}=#
     data::Union{D,NoMetaData}
     meta::Union{M,NoMetaMeta}
     Meta(data::D, meta::M) where {D,M} = Meta{D,M}(data, meta)
-    Meta{D,M}(data, meta) where {D,M} = new{D,M}(_metadataconvert(D, data), _metametaconvert(M, meta))
+    function Meta{D,M}(data, meta) where {D,M}
+        return new{D,M}(_metadataconvert(D, data), _metametaconvert(M, meta))
+    end
 end
 
 const NOMETA = Meta(NoMetaData(), NoMetaMeta())
@@ -92,10 +94,8 @@ Base.@pure @noinline function fetch_modulemeta(context::Context, m::Module)
     return ModuleMeta(NOMETA, bindings::BindingMetaDict)
 end
 
-Base.@pure @noinline function _fetch_bindingmeta!(context::Context,
-                                                  m::Module,
-                                                  bindings::BindingMetaDict,
-                                                  name::Symbol)
+Base.@pure @noinline function _fetch_bindingmeta!(context::Context, m::Module,
+                                                  bindings::BindingMetaDict, name::Symbol)
     return get!(bindings, name) do
         bindingmeta = BindingMeta()
         # If `!(isdefined(m, name))`, there must be a context-observable assigment to
@@ -110,11 +110,8 @@ Base.@pure @noinline function _fetch_bindingmeta!(context::Context,
     end
 end
 
-function fetch_bindingmeta!(context::Context,
-                             m::Module,
-                             bindings::BindingMetaDict,
-                             name::Symbol,
-                             primal)
+function fetch_bindingmeta!(context::Context, m::Module, bindings::BindingMetaDict,
+                            name::Symbol, primal)
     M = metatype(typeof(context), typeof(primal))
     return convert(M, _fetch_bindingmeta!(context, m, bindings, name).data)::M
 end
@@ -260,19 +257,23 @@ end
 end
 
 function metametatype(::Type{C}, ::Type{Module}) where {C<:Context}
-    return ModuleMeta{metadatatype(C, Symbol), metametatype(C, Symbol)}
+    return ModuleMeta{metadatatype(C, Symbol),metametatype(C, Symbol)}
 end
 
 #=== initmetameta ===#
 
 function _metametaexpr(::Type{C}, ::Type{V}, metaexprs::Vector) where {C,V}
-    if V <: Type || fieldcount(V) == 0 || (all(x == :NOMETA for x in metaexprs) && doesnotneedmetatype(V))
+    return if V <: Type ||
+              fieldcount(V) == 0 ||
+              (all(x == :NOMETA for x in metaexprs) && doesnotneedmetatype(V))
         return :(NoMetaMeta())
     else
         F = V.mutable ? :Mutable : :Immutable
         metatypes = [:(metatype(C, $S)) for S in _fieldtypes_for_metatype(V)]
-        metaconverts = [:(convert($(metatypes[i]), $(metaexprs[i]))) for i in 1:fieldcount(V)]
-        metametafields = [:($F{$(metatypes[i])}($(metaconverts[i]))) for i in 1:fieldcount(V)]
+        metaconverts = [:(convert($(metatypes[i]), $(metaexprs[i])))
+                        for i in 1:fieldcount(V)]
+        metametafields = [:($F{$(metatypes[i])}($(metaconverts[i])))
+                          for i in 1:fieldcount(V)]
         if !(V <: Tuple)
             fnames = fieldnames(V)
             for i in 1:fieldcount(V)
@@ -287,7 +288,7 @@ initmetameta(context::Context, value::Module) = fetch_modulemeta(context, value)
 
 function initmetameta(context::C, value::Array{V}) where {C<:Context,V}
     M = metatype(C, V)
-    if M <: typeof(NOMETA)
+    return if M <: typeof(NOMETA)
         return NoMetaMeta()
     else
         return fill!(similar(value, M), NOMETA)
@@ -303,7 +304,8 @@ end
 #=== initmeta ===#
 
 function initmeta(context::C, value::V, metadata::D) where {C<:Context,V,D}
-    return Meta{metadatatype(C, V),metametatype(C, V)}(metadata, initmetameta(context, value))
+    return Meta{metadatatype(C, V),metametatype(C, V)}(metadata,
+                                                       initmetameta(context, value))
 end
 
 ############
@@ -339,12 +341,12 @@ Note that `hastagging(typeof(context))` must be `true` for a value to be tagged 
 
 See also: [`untag`](@ref), [`enabletagging`](@ref), [`hastagging`](@ref)
 """
-function tag(value, context::Context, metadata = NoMetaData())
+function tag(value, context::Context, metadata=NoMetaData())
     return Tagged(context, value, initmeta(context, value, metadata))
 end
 
-function tag(value, context::ContextUntagged, metadata = NoMetaData())
-    error("cannot `tag` a value w.r.t. a `context` if `!hastagging(typeof(context))`")
+function tag(value, context::ContextUntagged, metadata=NoMetaData())
+    return error("cannot `tag` a value w.r.t. a `context` if `!hastagging(typeof(context))`")
 end
 
 """
@@ -454,11 +456,15 @@ hasmetameta(x, tag::Union{Tag,Nothing}) = !isa(metameta(x, tag), NoMetaMeta)
 # Core._apply iteration #
 #########################
 
-destructstate(ctx::ContextTagged{T}, state::Tagged{T,<:Tuple}) where {T} = (tagged_getfield(ctx, state, 1), tagged_getfield(ctx, state, 2))
+function destructstate(ctx::ContextTagged{T}, state::Tagged{T,<:Tuple}) where {T}
+    return (tagged_getfield(ctx, state, 1), tagged_getfield(ctx, state, 2))
+end
 destructstate(ctx, state) = untag(state, ctx)
 
 Base.iterate(t::Tagged) = destructstate(t.context, overdub(t.context, iterate, t))
-Base.iterate(t::Tagged, state) = destructstate(t.context, overdub(t.context, iterate, t, state))
+function Base.iterate(t::Tagged, state)
+    return destructstate(t.context, overdub(t.context, iterate, t, state))
+end
 
 ##################################
 # `tagged_new`/`tagged_splatnew` #
@@ -474,7 +480,8 @@ Base.iterate(t::Tagged, state) = destructstate(t.context, overdub(t.context, ite
         end
     end
     untagged_args = [:(untag(args[$i], context)) for i in 1:nfields(args)]
-    newexpr = (T <: Tuple) ? Expr(:tuple, untagged_args...) : Expr(:new, T, untagged_args...)
+    newexpr = (T <: Tuple) ? Expr(:tuple, untagged_args...) :
+              Expr(:new, T, untagged_args...)
     onlytypeargs = true
     for arg in args
         if !(arg <: Type)
@@ -482,7 +489,8 @@ Base.iterate(t::Tagged, state) = destructstate(t.context, overdub(t.context, ite
             break
         end
     end
-    if (all(x == :NOMETA for x in argmetaexprs) && doesnotneedmetatype(T)) || onlytypeargs
+    return if (all(x == :NOMETA for x in argmetaexprs) && doesnotneedmetatype(T)) ||
+              onlytypeargs
         return newexpr
     else
         metametaexpr = _metametaexpr(C, T, argmetaexprs)
@@ -495,7 +503,8 @@ end
 
 @inline tagged_splatnew(context::Context, T::Type, args) = tagged_new(context, T, args...)
 
-@generated function tagged_new_array(context::C, ::Type{T}, args...) where {C<:Context,T<:Array}
+@generated function tagged_new_array(context::C, ::Type{T},
+                                     args...) where {C<:Context,T<:Array}
     untagged_args = [:(untag(args[$i], context)) for i in 1:nfields(args)]
     return quote
         return tag($(T)($(untagged_args...)), context)
@@ -528,7 +537,7 @@ end
 
 # like `tagged_new_tuple`, but will not necessarily tag non-`doesnotneedmeta` elements of `args`
 @generated function _tagged_new_tuple_unsafe(context::C, args...) where {C<:Context}
-    if all(!istaggedtype(arg, C) for arg in args)
+    return if all(!istaggedtype(arg, C) for arg in args)
         return quote
             Core.tuple(args...)
         end
@@ -545,8 +554,13 @@ end
 
 _untag_all(context::Context, a) = untag(a, context)
 _untag_all(context::Context, a, b) = (untag(a, context), untag(b, context))
-_untag_all(context::Context, a, b, c) = (untag(a, context), untag(b, context), untag(c, context))
-_untag_all(context::Context, a, b, c, rest...) = (untag(a, context), untag(b, context), untag(c, context), _untag_all(context, rest...)...)
+function _untag_all(context::Context, a, b, c)
+    return (untag(a, context), untag(b, context), untag(c, context))
+end
+function _untag_all(context::Context, a, b, c, rest...)
+    return (untag(a, context), untag(b, context), untag(c, context),
+            _untag_all(context, rest...)...)
+end
 
 #=== tagged_nameof ===#
 
@@ -560,11 +574,9 @@ end
 
 #=== tagged_globalref ===#
 
-@inline function tagged_globalref(context::ContextTagged{T},
-                                  m::Tagged{T},
-                                  name,
+@inline function tagged_globalref(context::ContextTagged{T}, m::Tagged{T}, name,
                                   primal) where {T}
-    if hasmetameta(m, context) && !istagged(primal, context)
+    return if hasmetameta(m, context) && !istagged(primal, context)
         return _tagged_globalref(context, m, name, primal)
     else
         return primal
@@ -572,32 +584,30 @@ end
 end
 
 # assume that `context` === `primal` TODO is this assumption valid?
-@inline function tagged_globalref(context::ContextTagged{T},
-                                  m::Tagged{T},
-                                  name,
+@inline function tagged_globalref(context::ContextTagged{T}, m::Tagged{T}, name,
                                   primal::ContextTagged{T}) where {T}
     return primal
 end
 
-@inline function _tagged_globalref(context::ContextTagged{T},
-                                   m::Tagged{T},
-                                   name,
+@inline function _tagged_globalref(context::ContextTagged{T}, m::Tagged{T}, name,
                                    primal) where {T}
     untagged_name = untag(name, context)
-    if isconst(m.value, untagged_name) && doesnotneedmeta(primal)
+    return if isconst(m.value, untagged_name) && doesnotneedmeta(primal)
         # It's very important that this fast path exists and is taken with no runtime
         # overhead; this is the path that will be taken by, for example, access of simple
         # named function bindings.
         return primal
     else
-        meta = fetch_bindingmeta!(context, m.value, m.meta.meta.bindings, untagged_name, primal)
+        meta = fetch_bindingmeta!(context, m.value, m.meta.meta.bindings, untagged_name,
+                                  primal)
         return Tagged(context, primal, meta)
     end
 end
 
 #=== tagged_globalref_set_meta! ===#
 
-@inline function tagged_globalref_set_meta!(context::ContextTagged{T}, m::Tagged{T}, name::Symbol, primal) where {T}
+@inline function tagged_globalref_set_meta!(context::ContextTagged{T}, m::Tagged{T},
+                                            name::Symbol, primal) where {T}
     bindingmeta = _fetch_bindingmeta!(context, m.value, m.meta.meta.bindings, name)
     bindingmeta.data = istagged(primal, context) ? primal.meta : NOMETA
     return nothing
@@ -607,14 +617,17 @@ end
 
 tagged_getfield(context::Context, x, name) = tagged_getfield(context, x, name, false)
 
-tagged_getfield(context::ContextTagged{T}, x, name, boundscheck) where {T} = getfield(x, untag(name, context), untag(boundscheck, context))
+function tagged_getfield(context::ContextTagged{T}, x, name, boundscheck) where {T}
+    return getfield(x, untag(name, context), untag(boundscheck, context))
+end
 
-function tagged_getfield(context::ContextTagged{T}, x::Tagged{T}, name, boundscheck) where {T}
+function tagged_getfield(context::ContextTagged{T}, x::Tagged{T}, name,
+                         boundscheck) where {T}
     untagged_boundscheck = untag(boundscheck, context)
     untagged_name = untag(name, context)
     x_value = untag(x, context)
     y_value = getfield(x_value, untagged_name, untagged_boundscheck)
-    if isa(x_value, Module)
+    return if isa(x_value, Module)
         return tagged_globalref(context, x, untagged_name, getfield(x_value, untagged_name))
     elseif hasmetameta(x, context)
         y_meta = load(getfield(x.meta.meta, untagged_name, untagged_boundscheck))
@@ -629,7 +642,9 @@ end
 
 #=== tagged_setfield! ===#
 
-tagged_setfield!(context::ContextTagged{T}, x, name, y) where {T} = setfield!(x, untag(name, context), y)
+function tagged_setfield!(context::ContextTagged{T}, x, name, y) where {T}
+    return setfield!(x, untag(name, context), y)
+end
 
 function tagged_setfield!(context::ContextTagged{T}, x::Tagged{T}, name, y) where {T}
     untagged_name = untag(name, context)
@@ -648,7 +663,8 @@ function tagged_arrayref(context::ContextTagged{T}, boundscheck, x, inds...) whe
     return Core.arrayref(untag(boundscheck, context), x, _untag_all(context, inds...)...)
 end
 
-function tagged_arrayref(context::ContextTagged{T}, boundscheck, x::Tagged{T}, inds...) where {T}
+function tagged_arrayref(context::ContextTagged{T}, boundscheck, x::Tagged{T},
+                         inds...) where {T}
     untagged_boundscheck = untag(boundscheck, context)
     untagged_inds = _untag_all(context, inds...)
     y_value = Core.arrayref(untagged_boundscheck, untag(x, context), untagged_inds...)
@@ -666,21 +682,25 @@ function tagged_arrayset(context::ContextTagged{T}, boundscheck, x, y, inds...) 
     return Core.arrayset(untag(boundscheck, context), x, y, _untag_all(context, inds...)...)
 end
 
-function tagged_arrayset(context::ContextTagged{T}, boundscheck, x::Tagged{T}, y, inds...) where {T}
+function tagged_arrayset(context::ContextTagged{T}, boundscheck, x::Tagged{T}, y,
+                         inds...) where {T}
     untagged_boundscheck = untag(boundscheck, context)
     untagged_inds = _untag_all(context, inds...)
     y_value = untag(y, context)
     y_meta = istagged(y, context) ? y.meta : NOMETA
     Core.arrayset(untagged_boundscheck, untag(x, context), y_value, untagged_inds...)
     if hasmetameta(x, context)
-        Core.arrayset(untagged_boundscheck, x.meta.meta, convert(eltype(x.meta.meta), y_meta), untagged_inds...)
+        Core.arrayset(untagged_boundscheck, x.meta.meta,
+                      convert(eltype(x.meta.meta), y_meta), untagged_inds...)
     end
     return x
 end
 
 #=== tagged_growbeg! ===#
 
-tagged_growbeg!(context::ContextTagged{T}, x, delta) where {T} = Base._growbeg!(x, untag(delta, context))
+function tagged_growbeg!(context::ContextTagged{T}, x, delta) where {T}
+    return Base._growbeg!(x, untag(delta, context))
+end
 
 function tagged_growbeg!(context::ContextTagged{T}, x::Tagged{T}, delta) where {T}
     delta_untagged = untag(delta, context)
@@ -694,7 +714,9 @@ end
 
 #=== tagged_growend! ===#
 
-tagged_growend!(context::ContextTagged{T}, x, delta) where {T} = Base._growend!(x, untag(delta, context))
+function tagged_growend!(context::ContextTagged{T}, x, delta) where {T}
+    return Base._growend!(x, untag(delta, context))
+end
 
 function tagged_growend!(context::ContextTagged{T}, x::Tagged{T}, delta) where {T}
     delta_untagged = untag(delta, context)
@@ -726,7 +748,9 @@ end
 
 #=== tagged_deletebeg! ===#
 
-tagged_deletebeg!(context::ContextTagged{T}, x, delta) where {T} = Base._deletebeg!(x, untag(delta, context))
+function tagged_deletebeg!(context::ContextTagged{T}, x, delta) where {T}
+    return Base._deletebeg!(x, untag(delta, context))
+end
 
 function tagged_deletebeg!(context::ContextTagged{T}, x::Tagged{T}, delta) where {T}
     delta_untagged = untag(delta, context)
@@ -737,7 +761,9 @@ end
 
 #=== tagged_deleteend! ===#
 
-tagged_deleteend!(context::ContextTagged{T}, x, delta) where {T} = Base._deleteend!(x, untag(delta, context))
+function tagged_deleteend!(context::ContextTagged{T}, x, delta) where {T}
+    return Base._deleteend!(x, untag(delta, context))
+end
 
 function tagged_deleteend!(context::ContextTagged{T}, x::Tagged{T}, delta) where {T}
     delta_untagged = untag(delta, context)
@@ -792,7 +818,7 @@ tagged_sle_int(context::Context, x, y) = Base.sle_int(untag(x, context), untag(y
 Base.show(io::IO, meta::Union{NoMetaMeta,NoMetaData}) = print(io, "_")
 
 function Base.show(io::IO, meta::Meta)
-    if isa(meta.data, NoMetaData) && isa(meta.meta, NoMetaMeta)
+    return if isa(meta.data, NoMetaData) && isa(meta.meta, NoMetaMeta)
         print(io, "_")
     else
         if isa(meta.meta, NamedTuple)
@@ -830,6 +856,8 @@ function Base.show(io::IO, meta::Meta)
     end
 end
 
-Base.show(io::IO, x::Tagged) = print(io, "Tagged(", x.context.tag, ", ", x.value, ", ", x.meta, ")")
+function Base.show(io::IO, x::Tagged)
+    return print(io, "Tagged(", x.context.tag, ", ", x.value, ", ", x.meta, ")")
+end
 
 Base.show(io::IO, ::Tag{N,X,E}) where {N,X,E} = print(io, "Tag{", N, ",", X, ",", E, "}()")

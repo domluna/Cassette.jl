@@ -57,10 +57,10 @@ macro pass(transform)
     line = Expr(:quote, __source__.line)
     file = Expr(:quote, __source__.file)
     return esc(quote
-        struct $Pass <: $Cassette.AbstractPass end
-        (::Type{$Pass})(ctxtype, reflection) = $transform(ctxtype, reflection)
-        $Pass()
-    end)
+                   struct $Pass <: $Cassette.AbstractPass end
+                   (::Type{$Pass})(ctxtype, reflection) = $transform(ctxtype, reflection)
+                   $Pass()
+               end)
 end
 
 #############
@@ -94,7 +94,6 @@ function replace_match!(replace, ismatch, x)
     end
     return x
 end
-
 
 """
 ```
@@ -158,7 +157,7 @@ function insert_statements!(code, codelocs, stmtcount, newstmts)
         end
     end
     Core.Compiler.renumber_ir_elements!(code, ssachangemap, labelchangemap)
-    for (i, addedstmts) in worklist
+    return for (i, addedstmts) in worklist
         i += ssachangemap[i] - addedstmts # correct the index for accumulated offsets
         stmts = newstmts(code[i], i)
         @assert length(stmts) == (addedstmts + 1)
@@ -169,7 +168,6 @@ function insert_statements!(code, codelocs, stmtcount, newstmts)
         end
     end
 end
-
 
 """
 ```

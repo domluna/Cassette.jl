@@ -10,8 +10,8 @@ function rosenbrock(x::Vector{Float64})
     a = 1.0
     b = 100.0
     result = 0.0
-    for i in 1:length(x)-1
-        result += (a - x[i])^2 + b*(x[i+1] - x[i]^2)^2
+    for i in 1:(length(x) - 1)
+        result += (a - x[i])^2 + b * (x[i + 1] - x[i]^2)^2
     end
     return result
 end
@@ -55,40 +55,30 @@ ctx = HookCtx(metadata=(pres, posts))
 x1, x2, x3 = rand(Int), rand(Int), rand(Int)
 
 @overdub(ctx, x1 + x2 * x3)
-@test pres == [(*, (x2, x3)),
-               (Base.mul_int, (x2, x3)),
-               (+, (x1, x2*x3)),
-               (Base.add_int, (x1, x2*x3))]
-@test posts == [(Base.mul_int(x2, x3), Base.mul_int, (x2, x3)),
-                (*(x2, x3), *, (x2, x3)),
-                (Base.add_int(x1, x2*x3), Base.add_int, (x1, x2*x3)),
-                (+(x1, x2*x3), +, (x1, x2*x3))]
+@test pres == [(*, (x2, x3)), (Base.mul_int, (x2, x3)), (+, (x1, x2 * x3)),
+       (Base.add_int, (x1, x2 * x3))]
+@test posts == [(Base.mul_int(x2, x3), Base.mul_int, (x2, x3)), (*(x2, x3), *, (x2, x3)),
+       (Base.add_int(x1, x2 * x3), Base.add_int, (x1, x2 * x3)),
+       (+(x1, x2 * x3), +, (x1, x2 * x3))]
 empty!(pres)
 empty!(posts)
 
 Cassette.overdub(::HookCtx, ::typeof(+), args...) = +(args...)
 
 @overdub(ctx, x1 + x2 * x3)
-@test pres == [(*, (x2, x3)),
-               (Base.mul_int, (x2, x3)),
-               (+, (x1, x2*x3))]
-@test posts == [(Base.mul_int(x2, x3), Base.mul_int, (x2, x3)),
-                (*(x2, x3), *, (x2, x3)),
-                (+(x1, x2*x3), +, (x1, x2*x3))]
+@test pres == [(*, (x2, x3)), (Base.mul_int, (x2, x3)), (+, (x1, x2 * x3))]
+@test posts == [(Base.mul_int(x2, x3), Base.mul_int, (x2, x3)), (*(x2, x3), *, (x2, x3)),
+       (+(x1, x2 * x3), +, (x1, x2 * x3))]
 empty!(pres)
 empty!(posts)
 
 @overdub(ctx, Core._apply(+, (x1, x2), (x2 * x3, x3)))
-@test pres == [(tuple, (x1, x2)),
-               (*, (x2, x3)),
-               (Base.mul_int, (x2, x3)),
-               (tuple, (x2*x3, x3)),
-               (+, (x1, x2, x2*x3, x3))]
-@test posts == [((x1, x2), tuple, (x1, x2)),
-                (Base.mul_int(x2, x3), Base.mul_int, (x2, x3)),
-                (*(x2, x3), *, (x2, x3)),
-                ((x2*x3, x3), tuple, (x2*x3, x3)),
-                (+(x1, x2, x2*x3, x3), +, (x1, x2, x2*x3, x3))]
+@test pres ==
+      [(tuple, (x1, x2)), (*, (x2, x3)), (Base.mul_int, (x2, x3)), (tuple, (x2 * x3, x3)),
+       (+, (x1, x2, x2 * x3, x3))]
+@test posts == [((x1, x2), tuple, (x1, x2)), (Base.mul_int(x2, x3), Base.mul_int, (x2, x3)),
+       (*(x2, x3), *, (x2, x3)), ((x2 * x3, x3), tuple, (x2 * x3, x3)),
+       (+(x1, x2, x2 * x3, x3), +, (x1, x2, x2 * x3, x3))]
 
 println("done (took ", time() - before_time, " seconds)")
 
@@ -148,7 +138,7 @@ mutable struct Count{T}
     count::Int
 end
 function Cassette.prehook(ctx::CountCtx2{Count{T}}, f, arg::T, args::T...) where {T}
-    ctx.metadata.count += 1
+    return ctx.metadata.count += 1
 end
 mapstr(x) = map(string, x)
 c = Count{Union{String,Int}}(0)
@@ -257,30 +247,28 @@ print("   running TraceCtx test...")
 before_time = time()
 
 x, y, z = rand(3)
-trtest(x, y, z) = x*y + y*z
-trkwtest(x; _y = 1.0, _z = 2.0) = trtest(x, _y, _z)
+trtest(x, y, z) = x * y + y * z
+trkwtest(x; _y=1.0, _z=2.0) = trtest(x, _y, _z)
 
 @context TraceCtx
 
 function Cassette.overdub(ctx::TraceCtx, args...)
     subtrace = Any[]
     push!(ctx.metadata, args => subtrace)
-    if canrecurse(ctx, args...)
-        newctx = similarcontext(ctx, metadata = subtrace)
+    return if canrecurse(ctx, args...)
+        newctx = similarcontext(ctx, metadata=subtrace)
         return recurse(newctx, args...)
     else
         return fallback(ctx, args...)
     end
 end
 trace = Any[]
-@test @overdub(TraceCtx(metadata = trace), trtest(x, y, z)) == trtest(x, y, z)
-@test trace == Any[
-    (trtest,x,y,z) => Any[
-        (*,x,y) => Any[(Base.mul_float,x,y)=>Any[]]
-        (*,y,z) => Any[(Base.mul_float,y,z)=>Any[]]
-        (+,x*y,y*z) => Any[(Base.add_float,x*y,y*z)=>Any[]]
-    ]
-]
+@test @overdub(TraceCtx(metadata=trace), trtest(x, y, z)) == trtest(x, y, z)
+@test trace == Any[(trtest, x, y, z) => Any[
+              (*, x, y) => Any[(Base.mul_float, x, y) => Any[]]
+              (*, y, z) => Any[(Base.mul_float, y, z) => Any[]]
+              (+, x * y, y * z) => Any[(Base.add_float, x * y, y * z) => Any[]]
+          ]]
 
 # jrevels/Cassette.jl#48
 @context HookTraceCtx
@@ -292,8 +280,10 @@ mutable struct HookTrace
 end
 
 tracekw = Any[]
-@overdub(TraceCtx(metadata = tracekw), trkwtest(x, _y = y, _z = z)) == trtest(x, y, z)
-subtracekw = first(Iterators.filter(t -> t[1] === (Core.kwfunc(trkwtest), (_y = y, _z = z), trkwtest, x), tracekw))[2]
+@overdub(TraceCtx(metadata=tracekw), trkwtest(x, _y=y, _z=z)) == trtest(x, y, z)
+subtracekw = first(Iterators.filter(t -> t[1] ===
+                                         (Core.kwfunc(trkwtest), (_y=y, _z=z), trkwtest, x),
+                                    tracekw))[2]
 @test subtracekw == trace
 
 function enter!(t::HookTrace, args...)
@@ -313,7 +303,7 @@ Cassette.prehook(ctx::HookTraceCtx, args...) = enter!(ctx.metadata, args...)
 Cassette.posthook(ctx::HookTraceCtx, args...) = exit!(ctx.metadata)
 
 htrace = HookTrace()
-@overdub(HookTraceCtx(metadata = htrace), trtest(x, y, z))
+@overdub(HookTraceCtx(metadata=htrace), trtest(x, y, z))
 @test htrace.current == trace
 
 println("done (took ", time() - before_time, " seconds)")
@@ -362,8 +352,8 @@ before_time = time()
 
 dispatchtupletest(::Type{T}) where {T} = Base.isdispatchtuple(Tuple{T}) ? T : Any
 relu(x) = max(zero(x), x)
-relulayer(W, x, b) = relu.(W*x .+ b)
-kwargtest(foobar; foo = 1, bar = 2) = nothing
+relulayer(W, x, b) = relu.(W * x .+ b)
+kwargtest(foobar; foo=1, bar=2) = nothing
 
 @inferred(overdub(InferCtx(), typejoin, Float32, Float32, Float32))
 @inferred(overdub(InferCtx(), dispatchtupletest, Float32))
@@ -373,18 +363,21 @@ kwargtest(foobar; foo = 1, bar = 2) = nothing
 @inferred(overdub(InferCtx(), *, rand(Float32, 1, 1), rand(Float32, 1, 1)))
 if VERSION <= v"1.3"
     @inferred(overdub(InferCtx(), *, rand(Float32, 1, 1), rand(Float32, 1)))
-    @inferred(overdub(InferCtx(), relulayer, rand(Float64, 1, 1), rand(Float32, 1), rand(Float32, 1)))
+    @inferred(overdub(InferCtx(), relulayer, rand(Float64, 1, 1), rand(Float32, 1),
+                      rand(Float32, 1)))
     @inferred(overdub(InferCtx(), rand, Float32, 1))
 else
     # test depends on constant propagation
-    @test_throws Exception @inferred(overdub(InferCtx(), *, rand(Float32, 1, 1), rand(Float32, 1)))
+    @test_throws Exception @inferred(overdub(InferCtx(), *, rand(Float32, 1, 1),
+                                             rand(Float32, 1)))
     # test depends on M*v which is the test above 
-    @test_throws Exception @inferred(overdub(InferCtx(), relulayer, rand(Float64, 1, 1), rand(Float32, 1), rand(Float32, 1)))
+    @test_throws Exception @inferred(overdub(InferCtx(), relulayer, rand(Float64, 1, 1),
+                                             rand(Float32, 1), rand(Float32, 1)))
     # XXX: Figure out why this broke
     @test_throws Exception @inferred(overdub(InferCtx(), rand, Float32, 1))
 end
 @inferred(overdub(InferCtx(), broadcast, +, rand(1), rand(1)))
-@inferred(overdub(InferCtx(), () -> kwargtest(42; foo = 1, bar = 2)))
+@inferred(overdub(InferCtx(), () -> kwargtest(42; foo=1, bar=2)))
 
 println("done (took ", time() - before_time, " seconds)")
 
@@ -395,11 +388,11 @@ print("   running InModuleCtx test...")
 before_time = time()
 
 module DefineStuffInModule
-    using Cassette
-    Cassette.@context InModuleCtx
-    x = 0
-    incrpass = Cassette.@pass (ctx, ref) -> (global x += 1; ref.code_info)
-    f(x) = Cassette.overdub(InModuleCtx(pass = incrpass), sin, x)
+using Cassette
+Cassette.@context InModuleCtx
+x = 0
+incrpass = Cassette.@pass (ctx, ref) -> (global x += 1; ref.code_info)
+f(x) = Cassette.overdub(InModuleCtx(pass=incrpass), sin, x)
 end
 
 @test DefineStuffInModule.f(1) === sin(1)
@@ -424,9 +417,9 @@ ctx = InvokeCtx(metadata=Any[])
 @test overdub(ctx, invoker, 3) === 9
 # This is kind of fragile and may break for unrelated reasons - the main thing
 # we're testing here is that we properly trace through the `invoke` call.
-@test ctx.metadata == Any[Core.apply_type, Core.invoke, Core.apply_type,
-                          Val{2}, Core.apply_type, Base.literal_pow, *,
-                          Base.mul_int]
+@test ctx.metadata ==
+      Any[Core.apply_type, Core.invoke, Core.apply_type, Val{2}, Core.apply_type,
+          Base.literal_pow, *, Base.mul_int]
 
 println("done (took ", time() - before_time, " seconds)")
 
@@ -449,7 +442,6 @@ ctx = Invoke2Ctx(metadata=Any[])
 
 println("done (took ", time() - before_time, " seconds)")
 
-
 #############################################################################################
 
 # taken from https://stackoverflow.com/questions/52050262/how-to-do-memoization-or-memoisation-in-julia-1-0/52062639#52062639
@@ -471,7 +463,7 @@ end
 
 Cassette.posthook(ctx::MemoizeCtx, fibx, ::typeof(fib), x) = (ctx.metadata[x] = fibx)
 
-ctx = MemoizeCtx(metadata = Dict{Int,Int}())
+ctx = MemoizeCtx(metadata=Dict{Int,Int}())
 n = 10
 result = Cassette.overdub(ctx, fibtest, n)
 
@@ -525,7 +517,7 @@ before_time = time()
 @context DisableHooksCtx
 Cassette.prehook(ctx::DisableHooksCtx, args...) = ctx.metadata[1] += 1
 Cassette.posthook(ctx::DisableHooksCtx, args...) = ctx.metadata[2] += 1
-ctx = disablehooks(DisableHooksCtx(metadata = [0, 0]))
+ctx = disablehooks(DisableHooksCtx(metadata=[0, 0]))
 @test overdub(ctx, sin, 1.0) == sin(1.0)
 @test all(ctx.metadata .== 0)
 @test overdub(ctx, overdub, ctx, sin, 1.0) == sin(1.0)
@@ -544,8 +536,8 @@ using Core: CodeInfo, SlotNumber, SSAValue
 @context SliceCtx
 
 function Cassette.overdub(ctx::SliceCtx, f, callback, args...)
-    if canrecurse(ctx, f, args...)
-        _ctx = similarcontext(ctx, metadata = callback)
+    return if canrecurse(ctx, f, args...)
+        _ctx = similarcontext(ctx, metadata=callback)
         return recurse(_ctx, f, args...) # return result, callback
     else
         return fallback(ctx, f, args...), callback
@@ -566,11 +558,11 @@ function sliceprintln(::Type{<:SliceCtx}, reflection::Cassette.Reflection)
     push!(ir.slotnames, callbackslotname)
     push!(ir.slotflags, 0x00)
     callbackslot = SlotNumber(length(ir.slotnames))
-    getmetadata = Expr(:call, Expr(:nooverdub, GlobalRef(Core, :getfield)), Expr(:contextslot), QuoteNode(:metadata))
+    getmetadata = Expr(:call, Expr(:nooverdub, GlobalRef(Core, :getfield)),
+                       Expr(:contextslot), QuoteNode(:metadata))
 
     # insert the initial `callbackslot` assignment into the IR.
-    Cassette.insert_statements!(ir.code, ir.codelocs,
-                                (stmt, i) -> i == 1 ? 2 : nothing,
+    Cassette.insert_statements!(ir.code, ir.codelocs, (stmt, i) -> i == 1 ? 2 : nothing,
                                 (stmt, i) -> [Expr(:(=), callbackslot, getmetadata), stmt])
 
     # replace all calls of the form `f(args...)` with `f(callback, args...)`, taking care to
@@ -579,26 +571,50 @@ function sliceprintln(::Type{<:SliceCtx}, reflection::Cassette.Reflection)
     Cassette.insert_statements!(ir.code, ir.codelocs,
                                 (stmt, i) -> begin
                                     i > 1 || return nothing # don't slice the callback assignment
-                                    stmt = Base.Meta.isexpr(stmt, :(=)) ? stmt.args[2] : stmt
+                                    stmt = Base.Meta.isexpr(stmt, :(=)) ? stmt.args[2] :
+                                           stmt
                                     if Base.Meta.isexpr(stmt, :call)
-                                        isapply = Cassette.is_ir_element(stmt.args[1], GlobalRef(Core, :_apply), ir.code)
+                                        isapply = Cassette.is_ir_element(stmt.args[1],
+                                                                         GlobalRef(Core,
+                                                                                   :_apply),
+                                                                         ir.code)
                                         return 3 + isapply
                                     end
                                     return nothing
                                 end,
                                 (stmt, i) -> begin
                                     items = Any[]
-                                    callstmt = Base.Meta.isexpr(stmt, :(=)) ? stmt.args[2] : stmt
+                                    callstmt = Base.Meta.isexpr(stmt, :(=)) ? stmt.args[2] :
+                                               stmt
                                     callssa = SSAValue(i)
-                                    if Cassette.is_ir_element(callstmt.args[1], GlobalRef(Core, :_apply), ir.code)
-                                        push!(items, Expr(:call, Expr(:nooverdub, GlobalRef(Core, :tuple)), callbackslot))
-                                        push!(items, Expr(:call, callstmt.args[1], callstmt.args[2], SSAValue(i), callstmt.args[3:end]...))
+                                    if Cassette.is_ir_element(callstmt.args[1],
+                                                              GlobalRef(Core, :_apply),
+                                                              ir.code)
+                                        push!(items,
+                                              Expr(:call,
+                                                   Expr(:nooverdub,
+                                                        GlobalRef(Core, :tuple)),
+                                                   callbackslot))
+                                        push!(items,
+                                              Expr(:call, callstmt.args[1],
+                                                   callstmt.args[2], SSAValue(i),
+                                                   callstmt.args[3:end]...))
                                         callssa = SSAValue(i + 1)
                                     else
-                                        push!(items, Expr(:call, callstmt.args[1], callbackslot, callstmt.args[2:end]...))
+                                        push!(items,
+                                              Expr(:call, callstmt.args[1], callbackslot,
+                                                   callstmt.args[2:end]...))
                                     end
-                                    push!(items, Expr(:(=), callbackslot, Expr(:call, Expr(:nooverdub, GlobalRef(Core, :getfield)), callssa, 2)))
-                                    result = Expr(:call, Expr(:nooverdub, GlobalRef(Core, :getfield)), callssa, 1)
+                                    push!(items,
+                                          Expr(:(=), callbackslot,
+                                               Expr(:call,
+                                                    Expr(:nooverdub,
+                                                         GlobalRef(Core, :getfield)),
+                                                    callssa, 2)))
+                                    result = Expr(:call,
+                                                  Expr(:nooverdub,
+                                                       GlobalRef(Core, :getfield)), callssa,
+                                                  1)
                                     if Base.Meta.isexpr(stmt, :(=))
                                         result = Expr(:(=), stmt.args[1], result)
                                     end
@@ -608,13 +624,15 @@ function sliceprintln(::Type{<:SliceCtx}, reflection::Cassette.Reflection)
 
     # replace return statements of the form `return x` with `return (x, callback)`
     Cassette.insert_statements!(ir.code, ir.codelocs,
-                                  (stmt, i) -> Base.Meta.isexpr(stmt, :return) ? 2 : nothing,
-                                  (stmt, i) -> begin
-                                      return [
-                                          Expr(:call, Expr(:nooverdub, GlobalRef(Core, :tuple)), stmt.args[1], callbackslot)
-                                          Expr(:return, SSAValue(i))
-                                      ]
-                                  end)
+                                (stmt, i) -> Base.Meta.isexpr(stmt, :return) ? 2 : nothing,
+                                (stmt, i) -> begin
+                                    return [
+                                        Expr(:call,
+                                             Expr(:nooverdub, GlobalRef(Core, :tuple)),
+                                             stmt.args[1], callbackslot)
+                                        Expr(:return, SSAValue(i))
+                                    ]
+                                end)
     return ir
 end
 
@@ -631,7 +649,7 @@ function add(a, b)
     return c
 end
 
-ctx = SliceCtx(pass=sliceprintlnpass, metadata = () -> nothing)
+ctx = SliceCtx(pass=sliceprintlnpass, metadata=() -> nothing)
 
 result, callback = Cassette.recurse(ctx, add, a, b)
 
@@ -647,28 +665,30 @@ println("done (took ", time() - before_time, " seconds)")
 using LinearAlgebra
 
 struct Dense{F,S,T}
-  W::S
-  b::T
-  σ::F
+    W::S
+    b::T
+    σ::F
 end
 
 Dense(W, b) = Dense(W, b, identity)
 
 function (a::Dense)(x::AbstractArray)
-  W, b, σ = a.W, a.b, a.σ
-  σ.(W*x .+ b)
+    W, b, σ = a.W, a.b, a.σ
+    return σ.(W * x .+ b)
 end
 
-function (a::Dense{<:Any,W})(x::AbstractArray{T}) where {T <: Union{Float32,Float64}, W <: AbstractArray{T}}
-  invoke(a, Tuple{AbstractArray}, x)
+function (a::Dense{<:Any,W})(x::AbstractArray{T}) where {T<:Union{Float32,Float64},
+                                                         W<:AbstractArray{T}}
+    return invoke(a, Tuple{AbstractArray}, x)
 end
 
-function (a::Dense{<:Any,W})(x::AbstractArray{<:Real}) where {T <: Union{Float32,Float64}, W <: AbstractArray{T}}
-  a(T.(x))
+function (a::Dense{<:Any,W})(x::AbstractArray{<:Real}) where {T<:Union{Float32,Float64},
+                                                              W<:AbstractArray{T}}
+    return a(T.(x))
 end
 
 Cassette.@context CtxCallOverload;
-let d = Dense(3,3)
+let d = Dense(3, 3)
     data = rand(3)
     Cassette.overdub(CtxCallOverload(), d, data)
 end
@@ -680,19 +700,20 @@ print("   running OverdubOverdubCtx test...")
 # Fixed in PR #148
 Cassette.@context OverdubOverdubCtx
 overdub_overdub_me() = 2
-Cassette.overdub(OverdubOverdubCtx(), Cassette.overdub, OverdubOverdubCtx(), overdub_overdub_me)
+Cassette.overdub(OverdubOverdubCtx(), Cassette.overdub, OverdubOverdubCtx(),
+                 overdub_overdub_me)
 
 #############################################################################################
 
 print("   running NukeCtx test...")
 
-@Cassette.context NukeContext
-struct Silo; end
+Cassette.@context NukeContext
+struct Silo end
 
 Base.iterate(x::Silo) = (println("Launching Nukes"); error("What's the point?"))
 
 function Cassette.overdub(ctx::NukeContext, ::typeof(iterate), x::Silo)
-    nothing
+    return nothing
 end
 
 @test Cassette.overdub(NukeContext(), iterate, Silo()) === nothing
@@ -706,15 +727,13 @@ else
 end
 
 if VERSION >= v"1.4.0-DEV.304"
-    Cassette.@context ApplyIterateCtx;
+    Cassette.@context ApplyIterateCtx
 
     const instructions = []
-    function Cassette.prehook(ctx::ApplyIterateCtx,
-                              op::Any,
-                              a::T1, b::T2) where {T1, T2}
-        push!(instructions, (op, T1, T2))
+    function Cassette.prehook(ctx::ApplyIterateCtx, op::Any, a::T1, b::T2) where {T1,T2}
+        return push!(instructions, (op, T1, T2))
     end
 
-    Cassette.overdub(ApplyIterateCtx(), ()->pi*2.0)
+    Cassette.overdub(ApplyIterateCtx(), () -> pi * 2.0)
     @test instructions[end] === (Core.Intrinsics.mul_float, Float64, Float64)
 end

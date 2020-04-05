@@ -13,7 +13,7 @@ Base.@pure _pure_objectid(x) = objectid(x)
 
 abstract type AbstractContextName end
 
-struct Tag{N<:AbstractContextName,X,E#=<:Union{Nothing,Tag}=#} end
+struct Tag{N<:AbstractContextName,X,E} end#=<:Union{Nothing,Tag}=#
 
 Tag(::Type{N}, ::Type{X}) where {N,X} = Tag(N, X, Nothing)
 
@@ -95,12 +95,8 @@ To enable contextual tagging for a given context instance, see the [`enabletaggi
     the `overdub` pass's `prehook`/`posthook` injection (see [`disablehooks`](@ref)
     for details)
 """
-struct Context{N<:AbstractContextName,
-               M<:Any,
-               T<:Union{Nothing,Tag},
-               P<:AbstractPass,
-               B<:Union{Nothing,BindingMetaDictCache},
-               H<:Union{Nothing,DisableHooks}}
+struct Context{N<:AbstractContextName,M<:Any,T<:Union{Nothing,Tag},P<:AbstractPass,
+               B<:Union{Nothing,BindingMetaDictCache},H<:Union{Nothing,DisableHooks}}
     name::N
     metadata::M
     tag::T
@@ -111,10 +107,19 @@ end
 
 const ContextUntagged{N<:AbstractContextName} = Context{N,<:Any,Nothing}
 const ContextTagged{T<:Tag,N<:AbstractContextName} = Context{N,<:Any,T}
-const ContextWithPass{P<:AbstractPass,N<:AbstractContextName} = Context{N,<:Any,<:Union{Nothing,Tag},P}
-const ContextWithHookToggle{H<:Union{Nothing,DisableHooks},N<:AbstractContextName} = Context{N,<:Any,<:Union{Nothing,Tag},<:AbstractPass,<:Union{Nothing,BindingMetaDictCache},H}
+const ContextWithPass{P<:AbstractPass,N<:AbstractContextName} = Context{N,<:Any,
+                                                                        <:Union{Nothing,
+                                                                                Tag},P}
+const ContextWithHookToggle{H<:Union{Nothing,DisableHooks},N<:AbstractContextName} = Context{N,
+                                                                                             <:Any,
+                                                                                             <:Union{Nothing,
+                                                                                                     Tag},
+                                                                                             <:AbstractPass,
+                                                                                             <:Union{Nothing,
+                                                                                                     BindingMetaDictCache},
+                                                                                             H}
 
-function Context(name::AbstractContextName; metadata = nothing, pass::AbstractPass = NO_PASS)
+function Context(name::AbstractContextName; metadata=nothing, pass::AbstractPass=NO_PASS)
     return Context(name, metadata, nothing, pass, nothing, nothing)
 end
 
@@ -128,11 +133,9 @@ similarcontext(context::Context;
 Return a copy of the given `context`, where the copy's `metadata` and/or `pass`
 fields are replaced with those provided via the corresponding keyword arguments.
 """
-function similarcontext(context::Context;
-                        metadata = context.metadata,
-                        pass = context.pass)
-    return Context(context.name, metadata, context.tag, pass,
-                   context.bindingscache, context.hooktoggle)
+function similarcontext(context::Context; metadata=context.metadata, pass=context.pass)
+    return Context(context.name, metadata, context.tag, pass, context.bindingscache,
+                   context.hooktoggle)
 end
 
 """
@@ -168,8 +171,7 @@ each other's metadata propagation.
 See also: [`hastagging`](@ref)
 """
 function enabletagging(context::Context, f)
-    return Context(context.name, context.metadata,
-                   Tag(typeof(context.name), typeof(f)),
+    return Context(context.name, context.metadata, Tag(typeof(context.name), typeof(f)),
                    context.pass, BindingMetaDictCache(), context.hooktoggle)
 end
 
@@ -255,13 +257,21 @@ macro context(_Ctx)
 
         $Ctx(; kwargs...) = Context($CtxName(); kwargs...)
 
-        @inline Cassette.overdub(::C, ::Typeof(Tag), ::Type{N}, ::Type{X}) where {C<:$Ctx,N,X} = Tag(N, X, tagtype(C))
+        @inline function Cassette.overdub(::C, ::Typeof(Tag), ::Type{N},
+                                          ::Type{X}) where {C<:$Ctx,N,X}
+            return Tag(N, X, tagtype(C))
+        end
 
-        @inline Cassette.overdub(ctx::$Ctx, ::typeof(Core._apply), f, args...) = Core._apply(overdub, (ctx, f), args...)
+        @inline function Cassette.overdub(ctx::$Ctx, ::typeof(Core._apply), f, args...)
+            return Core._apply(overdub, (ctx, f), args...)
+        end
         if VERSION >= v"1.4.0-DEV.304"
-            @inline function Cassette.overdub(ctx::$Ctx, ::typeof(Core._apply_iterate), f, args...)
-                new_args = ((_args...) -> overdub(ctx, args[1], _args...), Base.tail(args)...)
-                Core._apply_iterate((args...)->overdub(ctx, f, args...), new_args...)
+            @inline function Cassette.overdub(ctx::$Ctx, ::typeof(Core._apply_iterate), f,
+                                              args...)
+                new_args = ((_args...) -> overdub(ctx, args[1], _args...),
+                            Base.tail(args)...)
+                return Core._apply_iterate((args...) -> overdub(ctx, f, args...),
+                                           new_args...)
             end
         end
 
@@ -270,34 +280,92 @@ macro context(_Ctx)
         # them, such as `isdispatchtuple`. Such functions should generally be contextual
         # primitives by default for the sake of performance, and we should add more of
         # them here as we encounter them.
-        @inline Cassette.overdub(ctx::$Ctx, f::Typeof(Base.isdispatchtuple), T::Type) = fallback(ctx, f, T)
-        @inline Cassette.overdub(ctx::$Ctx, f::Typeof(Base.eltype), T::Type) = fallback(ctx, f, T)
-        @inline Cassette.overdub(ctx::$Ctx, f::Typeof(Base.convert), T::Type, t::Tuple) = fallback(ctx, f, T, t)
-        @inline Cassette.overdub(ctx::$Ctx{<:Any,Nothing}, f::Typeof(Core.kwfunc), x) = fallback(ctx, f, x)
-        @inline Cassette.overdub(ctx::$Ctx{<:Any,Nothing}, f::Typeof(Base.getproperty), x::Any, s::Symbol) = fallback(ctx, f, x, s)
-        @inline Cassette.overdub(ctx::$Ctx, f::Typeof(Base.throw), exception) = fallback(ctx, f, exception)
+        @inline function Cassette.overdub(ctx::$Ctx, f::Typeof(Base.isdispatchtuple),
+                                          T::Type)
+            return fallback(ctx, f, T)
+        end
+        @inline function Cassette.overdub(ctx::$Ctx, f::Typeof(Base.eltype), T::Type)
+            return fallback(ctx, f, T)
+        end
+        @inline function Cassette.overdub(ctx::$Ctx, f::Typeof(Base.convert), T::Type,
+                                          t::Tuple)
+            return fallback(ctx, f, T, t)
+        end
+        @inline function Cassette.overdub(ctx::$Ctx{<:Any,Nothing}, f::Typeof(Core.kwfunc),
+                                          x)
+            return fallback(ctx, f, x)
+        end
+        @inline function Cassette.overdub(ctx::$Ctx{<:Any,Nothing},
+                                          f::Typeof(Base.getproperty), x::Any, s::Symbol)
+            return fallback(ctx, f, x, s)
+        end
+        @inline function Cassette.overdub(ctx::$Ctx, f::Typeof(Base.throw), exception)
+            return fallback(ctx, f, exception)
+        end
 
         # the below primitives are only active when the tagging system is enabled (`typeof(ctx) <: CtxTagged`)
 
-        @inline Cassette.overdub(ctx::C, f::Typeof(tag), value, ::C, metadata) where {C<:$CtxTagged} = fallback(ctx, f, value, ctx, metadata)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Array{T,N}), undef::UndefInitializer, args...) where {T,N} = tagged_new_array(ctx, Array{T,N}, undef, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.Module), args...) = tagged_new_module(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.tuple), args...) = tagged_new_tuple(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base.nameof), args...) = tagged_nameof(ctx, m)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.getfield), args...) = tagged_getfield(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.setfield!), args...) = tagged_setfield!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.arrayref), args...) = tagged_arrayref(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.arrayset), args...) = tagged_arrayset(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._growbeg!), args...) = tagged_growbeg!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._growend!), args...) = tagged_growend!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._growat!), args...) = tagged_growat!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._deletebeg!), args...) = tagged_deletebeg!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._deleteend!), args...) = tagged_deleteend!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._deleteat!), args...) = tagged_deleteat!(ctx, args...)
-        @inline Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.typeassert), args...) = tagged_typeassert(ctx, args...)
+        @inline function Cassette.overdub(ctx::C, f::Typeof(tag), value, ::C,
+                                          metadata) where {C<:$CtxTagged}
+            return fallback(ctx, f, value, ctx, metadata)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Array{T,N}),
+                                          undef::UndefInitializer, args...) where {T,N}
+            return tagged_new_array(ctx, Array{T,N}, undef, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.Module), args...)
+            return tagged_new_module(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.tuple), args...)
+            return tagged_new_tuple(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base.nameof), args...)
+            return tagged_nameof(ctx, m)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.getfield), args...)
+            return tagged_getfield(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.setfield!),
+                                          args...)
+            return tagged_setfield!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.arrayref), args...)
+            return tagged_arrayref(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.arrayset), args...)
+            return tagged_arrayset(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._growbeg!),
+                                          args...)
+            return tagged_growbeg!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._growend!),
+                                          args...)
+            return tagged_growend!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._growat!), args...)
+            return tagged_growat!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._deletebeg!),
+                                          args...)
+            return tagged_deletebeg!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._deleteend!),
+                                          args...)
+            return tagged_deleteend!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Base._deleteat!),
+                                          args...)
+            return tagged_deleteat!(ctx, args...)
+        end
+        @inline function Cassette.overdub(ctx::$CtxTagged, ::Typeof(Core.typeassert),
+                                          args...)
+            return tagged_typeassert(ctx, args...)
+        end
 
-        @inline function Cassette.overdub(ctx::$CtxTagged, f::Core.IntrinsicFunction, args...)
-            if f === Base.sitofp
+        @inline function Cassette.overdub(ctx::$CtxTagged, f::Core.IntrinsicFunction,
+                                          args...)
+            return if f === Base.sitofp
                 return tagged_sitofp(ctx, args...)
             elseif f === Base.sle_int
                 return tagged_sle_int(ctx, args...)
@@ -452,14 +520,22 @@ See also:  [`canrecurse`](@ref), [`overdub`](@ref), [`recurse`](@ref), [`prehook
 @inline fallback(ctx::Context, args...) = call(ctx, args...)
 
 @inline call(::ContextUntagged, f, args...) = f(args...)
-@inline call(context::ContextTagged, f, args...) = untag(f, context)(ntuple(i -> untag(args[i], context), Val(nfields(args)))...)
+@inline function call(context::ContextTagged, f, args...)
+    return untag(f, context)(ntuple(i -> untag(args[i], context), Val(nfields(args)))...)
+end
 
 # TODO: This is currently needed to force the compiler to specialize on the type arguments
 # to `Core.apply_type`. In the future, it would be best for Julia's compiler to better handle
 # varargs calls to such functions with type arguments, or at least provide a better way to
 # force specialization on the type arguments.
-@inline call(::ContextUntagged, f::typeof(Core.apply_type), ::Type{A}, ::Type{B}) where {A,B} = f(A, B)
-@inline call(::ContextTagged, f::typeof(Core.apply_type), ::Type{A}, ::Type{B}) where {A,B} = f(A, B)
+@inline function call(::ContextUntagged, f::typeof(Core.apply_type), ::Type{A},
+                      ::Type{B}) where {A,B}
+    return f(A, B)
+end
+@inline function call(::ContextTagged, f::typeof(Core.apply_type), ::Type{A},
+                      ::Type{B}) where {A,B}
+    return f(A, B)
+end
 
 """
 ```
@@ -478,8 +554,15 @@ Note that unlike `overdub`, `fallback`, etc., this function is not intended to b
 
 See also:  [`overdub`](@ref), [`fallback`](@ref), [`recurse`](@ref)
 """
-@inline canrecurse(ctx::Context, f, @nospecialize(args...)) = !(isa(untag(f, ctx), Core.Builtin) || _iscompilerfunc(untag(f, ctx)))
-@inline canrecurse(ctx::Context, ::typeof(Core._apply), f, @nospecialize(args...)) = Core._apply(canrecurse, (ctx, f), args...)
-@inline canrecurse(ctx::Context, ::typeof(Core.invoke), f, @nospecialize(_), @nospecialize(args...)) = canrecurse(ctx, f, args...)
+@inline function canrecurse(ctx::Context, f, @nospecialize(args...))
+    return !(isa(untag(f, ctx), Core.Builtin) || _iscompilerfunc(untag(f, ctx)))
+end
+@inline function canrecurse(ctx::Context, ::typeof(Core._apply), f, @nospecialize(args...))
+    return Core._apply(canrecurse, (ctx, f), args...)
+end
+@inline function canrecurse(ctx::Context, ::typeof(Core.invoke), f, @nospecialize(_),
+                            @nospecialize(args...))
+    return canrecurse(ctx, f, args...)
+end
 
 _iscompilerfunc(::F) where {F} = Core.Compiler.typename(F).module === Core.Compiler

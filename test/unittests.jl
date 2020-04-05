@@ -11,7 +11,7 @@ function const_bool_retval(f, sig)
     retval = isa(retval, SSAValue) ? ctyped.ssavaluetypes[retval.id] : retval
     retval = isa(retval, Const) ? retval.val : retval
     isa(retval, Bool) && return retval
-    error("did not infer constant boolean return value for ", f, sig)
+    return error("did not infer constant boolean return value for ", f, sig)
 end
 
 @context canrecurseTestCtx
