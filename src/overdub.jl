@@ -484,7 +484,7 @@ function overdub_pass!(reflection::Reflection, context_type::DataType,
                             Expr(:call, GlobalRef(Core, :_apply),
                                  GlobalRef(Cassette, :overdub), SSAValue(i), callargs...),]
                 Base.Meta.isexpr(x, :(=)) &&
-                push!(stmts, Expr(:(=), x.args[1], SSAValue(i + 1)))
+                    push!(stmts, Expr(:(=), x.args[1], SSAValue(i + 1)))
             elseif arehooksenabled
                 stmts = Any[Expr(:call, GlobalRef(Cassette, :prehook), overdub_ctx_slot,
                                  callstmt.args...),
@@ -498,7 +498,7 @@ function overdub_pass!(reflection::Reflection, context_type::DataType,
                 stmts = Any[Expr(:call, GlobalRef(Cassette, :overdub), overdub_ctx_slot,
                                  callstmt.args...),]
                 Base.Meta.isexpr(x, :(=)) &&
-                push!(stmts, Expr(:(=), x.args[1], SSAValue(i)))
+                    push!(stmts, Expr(:(=), x.args[1], SSAValue(i)))
             end
             return stmts
         end
